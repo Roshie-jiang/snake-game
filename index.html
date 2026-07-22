@@ -16,8 +16,11 @@
     min-height: 100vh;
     background: #0a0a0f;
     font-family: 'Orbitron', 'Segoe UI', sans-serif;
-    overflow: hidden;
+    overflow-x: hidden;
+    overflow-y: auto;
     user-select: none;
+    -webkit-user-select: none;
+    -webkit-tap-highlight-color: transparent;
   }
 
   /* 动态星空背景 */
@@ -161,6 +164,7 @@
     display: block;
     background: #0d0d1a;
     border-radius: 20px;
+    touch-action: none;
   }
 
   /* 操作按钮 */
@@ -266,30 +270,34 @@
       ". up ."
       "left . right"
       ". down .";
-    grid-template-columns: repeat(3, 60px);
-    grid-template-rows: repeat(3, 60px);
-    gap: 6px;
+    grid-template-columns: repeat(3, 72px);
+    grid-template-rows: repeat(3, 72px);
+    gap: 8px;
+    margin-top: 4px;
   }
 
   .dpad-btn {
-    width: 60px;
-    height: 60px;
-    border-radius: 14px;
-    border: 1px solid rgba(255,255,255,0.15);
-    background: rgba(255,255,255,0.05);
+    width: 72px;
+    height: 72px;
+    border-radius: 16px;
+    border: 2px solid rgba(255,255,255,0.2);
+    background: rgba(255,255,255,0.08);
     color: #fff;
-    font-size: 20px;
+    font-size: 24px;
     cursor: pointer;
     backdrop-filter: blur(8px);
-    transition: all 0.15s ease;
+    transition: all 0.1s ease;
     display: flex;
     align-items: center;
     justify-content: center;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
   }
 
   .dpad-btn:active {
-    background: rgba(0,255,136,0.2);
-    border-color: rgba(0,255,136,0.5);
+    background: rgba(0,255,136,0.25);
+    border-color: rgba(0,255,136,0.6);
+    transform: scale(0.92);
   }
 
   .dpad-up    { grid-area: up; }
@@ -298,14 +306,17 @@
   .dpad-right { grid-area: right; }
 
   @media (max-width: 600px) {
-    .title { font-size: 28px; letter-spacing: 3px; }
+    .game-wrapper { gap: 10px; }
+    .title { font-size: 26px; letter-spacing: 3px; }
     .difficulty-row { gap: 3px; padding: 3px; }
     .diff-btn { font-size: 10px; padding: 8px 10px; letter-spacing: 0; }
-    .score-panel { gap: 16px; }
-    .score-box { padding: 10px 18px; }
-    .score-value { font-size: 26px; }
+    .score-panel { gap: 12px; }
+    .score-box { padding: 8px 14px; }
+    .score-value { font-size: 24px; }
+    .score-label { font-size: 10px; letter-spacing: 2px; }
     .mobile-controls { display: grid; }
     .btn { font-size: 11px; padding: 10px 20px; }
+    .btn-row { gap: 10px; }
     .hint { font-size: 10px; letter-spacing: 1px; text-align: center; line-height: 1.5; }
   }
 </style>
@@ -371,8 +382,11 @@
   const GAP = 2;
 
   function resize() {
+    const isMobile = window.innerWidth <= 600;
+    // 移动端预留更多空间给按钮和方向键（D-Pad 约 240px + 其他约 250px）
+    const reserved = isMobile ? 500 : 420;
     const maxW = Math.min(window.innerWidth - 32, 500);
-    const maxH = Math.min(window.innerHeight - 420, 500);
+    const maxH = Math.min(window.innerHeight - reserved, 500);
     const size = Math.floor(Math.min(maxW, maxH) / COLS) * COLS;
     canvas.width = size;
     canvas.height = size;
@@ -822,22 +836,44 @@
     if (key === ' ') { e.preventDefault(); togglePause(); }
   });
 
-  // 移动端 D-Pad
-  document.querySelector('.dpad-up')?.addEventListener('click', () => changeDir(0, -1));
-  document.querySelector('.dpad-down')?.addEventListener('click', () => changeDir(0, 1));
-  document.querySelector('.dpad-left')?.addEventListener('click', () => changeDir(-1, 0));
-  document.querySelector('.dpad-right')?.addEventListener('click', () => changeDir(1, 0));
+  // 移动端 D-Pad — 用 touchstart + mousedown 避免 300ms 点击延迟
+  let touchOnDpad = false;
+  const dpadUp    = document.querySelector('.dpad-up');
+  const dpadDown  = document.querySelector('.dpad-down');
+  const dpadLeft  = document.querySelector('.dpad-left');
+  const dpadRight = document.querySelector('.dpad-right');
 
-  // 触摸滑动
+  function bindDpad(el, dx, dy) {
+    if (!el) return;
+    const handler = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      touchOnDpad = true;
+      changeDir(dx, dy);
+      setTimeout(() => { touchOnDpad = false; }, 100);
+      if (audioCtx.state === 'suspended') audioCtx.resume();
+    };
+    el.addEventListener('touchstart', handler, { passive: false });
+    el.addEventListener('mousedown', handler);
+  }
+  bindDpad(dpadUp, 0, -1);
+  bindDpad(dpadDown, 0, 1);
+  bindDpad(dpadLeft, -1, 0);
+  bindDpad(dpadRight, 1, 0);
+
+  // 触摸滑动 — 绑定到 document 而非 canvas，全屏任意位置都可滑动
   let touchStartX = 0, touchStartY = 0;
-  canvas.addEventListener('touchstart', e => {
+  document.addEventListener('touchstart', e => {
     touchStartX = e.touches[0].clientX;
     touchStartY = e.touches[0].clientY;
-  });
-  canvas.addEventListener('touchend', e => {
+  }, { passive: true });
+  document.addEventListener('touchend', e => {
+    if (touchOnDpad) return;
     const dx = e.changedTouches[0].clientX - touchStartX;
     const dy = e.changedTouches[0].clientY - touchStartY;
-    if (Math.abs(dx) < 20 && Math.abs(dy) < 20) return;
+    const minSwipe = 25;
+    if (Math.abs(dx) < minSwipe && Math.abs(dy) < minSwipe) return;
+    if (audioCtx.state === 'suspended') audioCtx.resume();
     if (Math.abs(dx) > Math.abs(dy)) {
       changeDir(dx > 0 ? 1 : -1, 0);
     } else {
