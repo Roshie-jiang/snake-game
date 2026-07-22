@@ -836,7 +836,7 @@
     if (key === ' ') { e.preventDefault(); togglePause(); }
   });
 
-  // 移动端 D-Pad — 用 touchstart + mousedown 避免 300ms 点击延迟
+  // 移动端 D-Pad — 彻底隔离按钮和滑动事件
   let touchOnDpad = false;
   const dpadUp    = document.querySelector('.dpad-up');
   const dpadDown  = document.querySelector('.dpad-down');
@@ -845,30 +845,42 @@
 
   function bindDpad(el, dx, dy) {
     if (!el) return;
-    const handler = (e) => {
+    el.addEventListener('touchstart', (e) => {
       e.preventDefault();
       e.stopPropagation();
       touchOnDpad = true;
       changeDir(dx, dy);
-      setTimeout(() => { touchOnDpad = false; }, 100);
       if (audioCtx.state === 'suspended') audioCtx.resume();
-    };
-    el.addEventListener('touchstart', handler, { passive: false });
-    el.addEventListener('mousedown', handler);
+    }, { passive: false });
+    // 关键：touchend 也要拦截，否则会泄漏到 document 的滑动检测
+    el.addEventListener('touchend', (e) => {
+      e.stopPropagation();
+    });
+    el.addEventListener('touchcancel', (e) => {
+      e.stopPropagation();
+    });
+    el.addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      changeDir(dx, dy);
+    });
   }
   bindDpad(dpadUp, 0, -1);
   bindDpad(dpadDown, 0, 1);
   bindDpad(dpadLeft, -1, 0);
   bindDpad(dpadRight, 1, 0);
 
-  // 触摸滑动 — 绑定到 document 而非 canvas，全屏任意位置都可滑动
+  // 触摸滑动 — 绑定到 document，屏幕任意位置都可滑动
   let touchStartX = 0, touchStartY = 0;
   document.addEventListener('touchstart', e => {
+    // 如果点的是 D-Pad 按钮，跳过
+    if (e.target.closest('.dpad-btn')) return;
     touchStartX = e.touches[0].clientX;
     touchStartY = e.touches[0].clientY;
+    touchOnDpad = false;
   }, { passive: true });
   document.addEventListener('touchend', e => {
-    if (touchOnDpad) return;
+    // 清理标记，但如果是 D-Pad 按钮的 touchend（已被拦截），这里不会执行
+    if (touchOnDpad) { touchOnDpad = false; return; }
     const dx = e.changedTouches[0].clientX - touchStartX;
     const dy = e.changedTouches[0].clientY - touchStartY;
     const minSwipe = 25;
